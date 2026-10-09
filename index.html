@@ -1,0 +1,390 @@
+ <!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Film Prop: Director Controlled Chat</title>
+    <style>
+        :root {
+            --wa-green: #075e54;
+            --wa-light-green: #128c7e;
+            --wa-chat-bg: #ece5dd;
+            --wa-sent: #dcf8c6;
+            --wa-received: #ffffff;
+            --hacker-bg: #0d1117;
+            --hacker-panel: #161b22;
+            --hacker-accent: #58a6ff;
+            --hacker-alert: #f85149;
+            --text-dark: #111;
+            --text-light: #c9d1d9;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; user-select: none; -webkit-user-select: none; }
+        body { background: #000; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+        /* === MAIN NAV === */
+        .main-nav { display: flex; background: var(--hacker-bg); border-bottom: 1px solid #30363d; overflow-x: auto; scrollbar-width: none; }
+        .main-nav::-webkit-scrollbar { display: none; }
+        .nav-item { padding: 12px 16px; color: #8b949e; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.5px; }
+        .nav-item.active { color: var(--hacker-accent); border-bottom-color: var(--hacker-accent); }
+        .nav-item.dummy { opacity: 0.5; }
+
+        /* === CONTAINER === */
+        .app-container { flex: 1; position: relative; overflow: hidden; }
+        .screen { display: none; height: 100%; width: 100%; position: absolute; top: 0; left: 0; }
+        .screen.active { display: flex; flex-direction: column; }
+
+        /* === WA CHAT === */
+        .wa-header { background: var(--wa-green); padding: 10px 15px; display: flex; align-items: center; gap: 10px; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); z-index: 5; position: relative; }
+        .wa-avatar { width: 38px; height: 38px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #333; }
+        .wa-info h3 { font-size: 16px; font-weight: 600; }
+        .wa-info p { font-size: 11px; opacity: 0.8; }
+        
+        /* Secret Director Button */
+        .director-trigger { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; opacity: 0.01; cursor: pointer; z-index: 10; }
+
+        .wa-chat-area { flex: 1; background: var(--wa-chat-bg); background-image: url('data:image/svg+xml,%3Csvg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M50 50 L60 40 L70 50 L60 60 Z" fill="%23d1d7db" opacity="0.3"/%3E%3C/svg%3E'); padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .bubble { max-width: 80%; padding: 6px 10px; border-radius: 8px; font-size: 14px; color: var(--text-dark); position: relative; line-height: 1.4; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+        .bubble.me { align-self: flex-end; background: var(--wa-sent); border-top-right-radius: 0; }
+        .bubble.them { align-self: flex-start; background: var(--wa-received); border-top-left-radius: 0; }
+        .bubble-meta { font-size: 10px; color: #666; text-align: right; margin-top: 2px; display: flex; justify-content: flex-end; gap: 3px; align-items: center; }
+
+        .wa-input-area { background: #f0f0f0; padding: 8px; display: flex; align-items: center; gap: 8px; }
+        .wa-input { flex: 1; padding: 10px 15px; border-radius: 25px; border: none; outline: none; font-size: 14px; background: white; }
+        .wa-btn { width: 42px; height: 42px; border-radius: 50%; border: none; background: var(--wa-light-green); color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }
+        .mic-btn.recording { background: var(--hacker-alert); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+        .recording-overlay { display: none; position: absolute; bottom: 60px; left: 0; right: 0; background: rgba(0,0,0,0.8); color: white; padding: 15px; text-align: center; font-size: 14px; backdrop-filter: blur(5px); z-index: 10; }
+        .recording-overlay.show { display: block; }
+        .timer { font-family: monospace; font-size: 20px; color: var(--hacker-alert); margin-top: 5px; }
+
+        .typing-indicator { align-self: flex-start; background: var(--wa-received); padding: 8px 14px; border-radius: 8px; border-top-left-radius: 0; display: none; gap: 4px; align-items: center; box-shadow: 0 1px 1px rgba(0,0,0,0.1); margin-bottom: 4px; }
+        .typing-indicator.show { display: flex; }
+        .dot { width: 6px; height: 6px; background: #999; border-radius: 50%; animation: typingDot 1.4s infinite; }
+        .dot:nth-child(2) { animation-delay: 0.2s; }
+        .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingDot { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+
+        /* === DIRECTOR PANEL === */
+        .director-panel {
+            display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95); z-index: 100; flex-direction: column; padding: 20px;
+            color: white; backdrop-filter: blur(10px);
+        }
+        .director-panel.open { display: flex; }
+        .dp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .dp-title { font-size: 16px; font-weight: 700; color: var(--hacker-accent); }
+        .dp-close { background: none; border: none; color: #888; font-size: 24px; cursor: pointer; }
+        .dp-section { margin-bottom: 20px; }
+        .dp-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .dp-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: white; font-size: 14px; outline: none; margin-bottom: 10px; }
+        .dp-input:focus { border-color: var(--hacker-accent); }
+        .dp-btn { padding: 12px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; width: 100%; font-size: 14px; margin-bottom: 8px; }
+        .dp-btn.primary { background: var(--wa-light-green); color: white; }
+        .dp-btn.secondary { background: #333; color: #ccc; }
+        .dp-btn.danger { background: rgba(248,81,73,0.2); color: var(--hacker-alert); border: 1px solid var(--hacker-alert); }
+        .dp-toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .dp-toggle input { width: 18px; height: 18px; accent-color: var(--hacker-accent); }
+        .dp-status { font-size: 11px; color: #3fb950; margin-top: 5px; min-height: 16px; }
+
+        /* === TRAFFIC TOOL === */
+        .tool-layout { display: flex; height: 100%; background: var(--hacker-bg); color: var(--text-light); }
+        .sidebar { width: 60px; background: var(--hacker-panel); border-right: 1px solid #30363d; display: flex; flex-direction: column; align-items: center; padding-top: 10px; gap: 15px; }
+        .side-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #8b949e; cursor: pointer; transition: 0.2s; }
+        .side-icon.active { background: rgba(88,166,255,0.15); color: var(--hacker-accent); }
+        .tool-main { flex: 1; padding: 15px; overflow-y: auto; }
+        .tool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .tool-title { font-size: 14px; font-weight: 700; color: var(--hacker-accent); letter-spacing: 1px; }
+        .status-badge { font-size: 10px; padding: 3px 8px; border-radius: 10px; background: rgba(63,185,80,0.2); color: #3fb950; border: 1px solid #3fb950; }
+        .grid-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-card { background: var(--hacker-panel); border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
+        .stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; }
+        .stat-val { font-size: 22px; font-weight: 800; font-family: 'Courier New', monospace; }
+        .accent { color: var(--hacker-accent); } .alert { color: var(--hacker-alert); }
+        .terminal-box { background: #010409; border: 1px solid #30363d; border-radius: 8px; padding: 10px; font-family: 'Courier New', monospace; font-size: 11px; color: #3fb950; height: 180px; overflow: hidden; line-height: 1.6; }
+        .target-tag { display: inline-block; background: rgba(248,81,73,0.15); color: var(--hacker-alert); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; border: 1px solid var(--hacker-alert); margin-bottom: 10px; }
+        .dummy-screen { display: flex; align-items: center; justify-content: center; height: 100%; color: #30363d; font-size: 14px; text-align: center; padding: 20px; background: var(--hacker-bg); }
+    </style>
+</head>
+<body>
+
+    <nav class="main-nav">
+        <div class="nav-item active" onclick="switchScreen('chat', this)">MSG_INTERCEPT</div>
+        <div class="nav-item" onclick="switchScreen('traffic', this)">TRAFFIC_ROUTER</div>
+        <div class="nav-item dummy" onclick="switchScreen('dummy', this)">NET_SNIFFER</div>
+        <div class="nav-item dummy" onclick="switchScreen('dummy', this)">PAYLOAD_GEN</div>
+        <div class="nav-item dummy" onclick="switchScreen('dummy', this)">PROXY_CHAIN</div>
+        <div class="nav-item dummy" onclick="switchScreen('dummy', this)">LOG_ANALYZER</div>
+    </nav>
+
+    <div class="app-container">
+        
+        <!-- SCREEN: CHAT -->
+        <div id="chat" class="screen active">
+            <div class="wa-header">
+                <div class="wa-avatar">CJ</div>
+                <div class="wa-info"><h3>Christian James ❤️❤️</h3><p>online</p></div>
+                <!-- SECRET TRIGGER: Tap 3x cepat untuk buka Director Panel -->
+                <div class="director-trigger" id="directorTrigger"></div>
+            </div>
+            
+            <div class="wa-chat-area" id="chatArea"></div>
+            <div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+
+            <div class="recording-overlay" id="recOverlay">
+                🎙️ Merekam Pesan Suara...
+                <div class="timer" id="recTimer">00:00</div>
+                <div style="font-size:11px;margin-top:8px;opacity:0.7;">Ketuk mic lagi untuk stop & kirim</div>
+            </div>
+
+            <div class="wa-input-area">
+                <input type="text" class="wa-input" id="msgInput" placeholder="Ketik pesan..." onkeypress="handleEnter(event)">
+                <button class="wa-btn mic-btn" id="micBtn" onclick="toggleRecording()">🎤</button>
+                <button class="wa-btn" onclick="sendMessage()">➤</button>
+            </div>
+        </div>
+
+        <!-- DIRECTOR PANEL (OVERLAY) -->
+        <div class="director-panel" id="directorPanel">
+            <div class="dp-header">
+                <div class="dp-title">🎬 DIRECTOR CONTROL</div>
+                <button class="dp-close" onclick="closeDirector()">✕</button>
+            </div>
+
+            <div class="dp-section">
+                <div class="dp-label">Kirim Pesan Sebagai Christian James</div>
+                <input type="text" class="dp-input" id="cjDirectInput" placeholder="Ketik dialog CJ di sini...">
+                <button class="dp-btn primary" onclick="sendAsCJ()">💬 Send as CJ</button>
+                <div class="dp-status" id="cjStatus"></div>
+            </div>
+
+            <div class="dp-section">
+                <div class="dp-label">Quick Actions</div>
+                <button class="dp-btn secondary" onclick="triggerTypingOnly()">⌨️ Show Typing Indicator (3s)</button>
+                <button class="dp-btn secondary" onclick="addVoiceNoteCJ()">🎤 Send Voice Note (CJ)</button>
+            </div>
+
+            <div class="dp-section">
+                <div class="dp-label">Chat Management</div>
+                <div class="dp-toggle">
+                    <input type="checkbox" id="autoReplyToggle" checked>
+                    <label for="autoReplyToggle" style="font-size:13px;color:#ccc;">Auto-reply naskah aktif</label>
+                </div>
+                <button class="dp-btn danger" onclick="resetChat()">🗑️ Reset Semua Chat</button>
+            </div>
+        </div>
+
+        <!-- SCREEN: TRAFFIC TOOL -->
+        <div id="traffic" class="screen">
+            <div class="tool-layout">
+                <div class="sidebar">
+                    <div class="side-icon active">📊</div><div class="side-icon">⚙️</div><div class="side-icon">🔑</div>
+                    <div class="side-icon">🛡️</div><div class="side-icon">📡</div>
+                    <div class="side-icon" style="margin-top:auto;margin-bottom:10px;">❓</div>
+                </div>
+                <div class="tool-main">
+                    <div class="tool-header"><div class="tool-title">TIKTOK TRAFFIC DIVERT v3.8</div><div class="status-badge">● ACTIVE</div></div>
+                    <div class="target-tag">TARGET: @AKSA_TIKTOK</div>
+                    <div class="grid-stats">
+                        <div class="stat-card"><div class="stat-label">Diverted Views</div><div class="stat-val accent" id="views">2,847,102</div></div>
+                        <div class="stat-card"><div class="stat-label">Success Rate</div><div class="stat-val" style="color:#3fb950;">94.7%</div></div>
+                        <div class="stat-card"><div class="stat-label">Active Nodes</div><div class="stat-val">1,247</div></div>
+                        <div class="stat-card"><div class="stat-label">Alg. Bypass</div><div class="stat-val alert">ENABLED</div></div>
+                    </div>
+                    <div class="terminal-box" id="termLog">> System initialized<br>> Connecting to proxy chain... OK<br>> Target fingerprint acquired<br></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="dummy" class="screen"><div class="dummy-screen"><div><div style="font-size:40px;margin-bottom:10px;">🔒</div>MODULE LOCKED<br><span style="font-size:11px;opacity:0.5;">Requires Level 5 Clearance</span></div></div></div>
+    </div>
+
+    <script>
+        // =============================================
+        // 🎬 NASKAH AUTO-REPLY (CADANGAN)
+        // =============================================
+        const cjScript = [
+            "Haii sayang! Udah makan belum? 😊",
+            "Aku kangen banget deh sama kamu...",
+            "Nanti malam kita video call ya? ❤️❤️",
+            "Serius?! Aku nggak sabar ketemu kamu!",
+            "Oke siap, aku tungguin ya baby 🥺"
+        ];
+        let scriptIndex = 0;
+        let autoReplyEnabled = true;
+
+        // =============================================
+        // ⚙️ CORE CHAT ENGINE
+        // =============================================
+        const chatArea = document.getElementById('chatArea');
+        const msgInput = document.getElementById('msgInput');
+        const typingIndicator = document.getElementById('typingIndicator');
+
+        function getTime() {
+            const now = new Date();
+            return now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        }
+
+        function addBubble(text, type) {
+            const div = document.createElement('div');
+            div.className = `bubble ${type}`;
+            const meta = type === 'me' ? `${getTime()} ✓✓` : getTime();
+            div.innerHTML = `${text}<div class="bubble-meta">${meta}</div>`;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function showTyping(show) {
+            typingIndicator.classList.toggle('show', show);
+            if(show) chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        // Player send message
+        function sendMessage() {
+            const text = msgInput.value.trim();
+            if(!text) return;
+            addBubble(text, 'me');
+            msgInput.value = '';
+            
+            // Auto-reply hanya jika toggle aktif DAN director panel tidak override
+            if(autoReplyEnabled) {
+                setTimeout(() => showTyping(true), 500);
+                setTimeout(() => {
+                    showTyping(false);
+                    addBubble(cjScript[scriptIndex % cjScript.length], 'them');
+                    scriptIndex++;
+                }, 1500 + Math.random() * 1500);
+            }
+        }
+
+        function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
+
+        // Opening messages
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => addBubble("Pagi cintaa ☀️", 'them'), 300);
+            setTimeout(() => addBubble("Lagi ngapain?", 'them'), 900);
+        });
+
+        // =============================================
+        // 🎬 DIRECTOR PANEL LOGIC
+        // =============================================
+        const directorPanel = document.getElementById('directorPanel');
+        const cjDirectInput = document.getElementById('cjDirectInput');
+        const cjStatus = document.getElementById('cjStatus');
+        const autoReplyToggle = document.getElementById('autoReplyToggle');
+
+        // Secret trigger: tap 3x cepat pada area kanan header
+        let tapCount = 0;
+        let tapTimer = null;
+        document.getElementById('directorTrigger').addEventListener('click', () => {
+            tapCount++;
+            clearTimeout(tapTimer);
+            tapTimer = setTimeout(() => { tapCount = 0; }, 800);
+            if(tapCount >= 3) {
+                tapCount = 0;
+                openDirector();
+            }
+        });
+
+        function openDirector() { directorPanel.classList.add('open'); }
+        function closeDirector() { directorPanel.classList.remove('open'); }
+
+        // KIRIM PESAN SEBAGAI CJ (FITUR UTAMA)
+        function sendAsCJ() {
+            const text = cjDirectInput.value.trim();
+            if(!text) return;
+            
+            // Matikan auto-reply sementara agar tidak double reply
+            autoReplyEnabled = false;
+            autoReplyToggle.checked = false;
+            
+            // Simulasi typing dulu biar natural
+            closeDirector();
+            showTyping(true);
+            
+            setTimeout(() => {
+                showTyping(false);
+                addBubble(text, 'them');
+                cjDirectInput.value = '';
+                cjStatus.innerText = '✅ Pesan terkirim sebagai CJ';
+                setTimeout(() => { cjStatus.innerText = ''; }, 2000);
+            }, 1200);
+        }
+
+        // Hanya tampilkan typing indicator tanpa kirim pesan
+        function triggerTypingOnly() {
+            closeDirector();
+            showTyping(true);
+            setTimeout(() => showTyping(false), 3000);
+        }
+
+        // Kirim voice note palsu dari CJ
+        function addVoiceNoteCJ() {
+            closeDirector();
+            showTyping(true);
+            setTimeout(() => {
+                showTyping(false);
+                addBubble("🎤 00:12", 'them');
+            }, 1000);
+        }
+
+        // Toggle auto-reply
+        autoReplyToggle.addEventListener('change', (e) => {
+            autoReplyEnabled = e.target.checked;
+        });
+
+        // Reset chat
+        function resetChat() {
+            chatArea.innerHTML = '';
+            scriptIndex = 0;
+            cjStatus.innerText = '🗑️ Chat direset';
+            setTimeout(() => { cjStatus.innerText = ''; }, 2000);
+        }
+
+        // =============================================
+        // 🎤 MIC RECORDING FAKE
+        // =============================================
+        let isRecording = false, recInterval, seconds = 0;
+        const micBtn = document.getElementById('micBtn');
+        const recOverlay = document.getElementById('recOverlay');
+        const recTimer = document.getElementById('recTimer');
+
+        function toggleRecording() {
+            if(isRecording) {
+                clearInterval(recInterval); isRecording = false;
+                micBtn.classList.remove('recording'); recOverlay.classList.remove('show');
+                addBubble(`🎤 ${formatTime(seconds)}`, 'me');
+                seconds = 0; recTimer.innerText = "00:00";
+                if(autoReplyEnabled) {
+                    setTimeout(() => showTyping(true), 500);
+                    setTimeout(() => { showTyping(false); addBubble(cjScript[scriptIndex % cjScript.length], 'them'); scriptIndex++; }, 2000);
+                }
+            } else {
+                isRecording = true; micBtn.classList.add('recording'); recOverlay.classList.add('show');
+                seconds = 0;
+                recInterval = setInterval(() => { seconds++; recTimer.innerText = formatTime(seconds); }, 1000);
+            }
+        }
+
+        function formatTime(s) { return Math.floor(s/60).toString().padStart(2,'0') + ':' + (s%60).toString().padStart(2,'0'); }
+
+        // =============================================
+        // 🧭 NAVIGATION & TRAFFIC ANIMATION
+        // =============================================
+        function switchScreen(id, btn) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            if(btn) { document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active')); btn.classList.add('active'); }
+        }
+
+        let viewCount = 2847102;
+        const viewsEl = document.getElementById('views');
+        const termLog = document.getElementById('termLog');
+        const logs = ["> Rerouting FYP algorithm stream...", "> Packet injection successful", "> Bypassing rate limit... OK", "> New session created for target", "> Diverting hashtag traffic #viral", "> Cache invalidation complete", "> Node SG-04 responding... latency 12ms", "> Engagement boost applied +340%", "> Shadowban evasion active", "> Refreshing token pool..."];
+
+        setInterval(() => { viewCount += Math.floor(Math.random() * 80) + 15; viewsEl.innerText = viewCount.toLocaleString(); }, 600);
+        setInterval(() => { const log = logs[Math.floor(Math.random() * logs.length)]; const p = document.createElement('div'); p.innerText = log; termLog.appendChild(p); termLog.scrollTop = termLog.scrollHeight; if(termLog.children.length > 20) termLog.removeChild(termLog.firstChild); }, 1200);
+    </script>
+</body>
+</html>
